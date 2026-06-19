@@ -7,7 +7,7 @@ from datetime import datetime
 # ==============================================
 #  НАСТРОЙКИ
 # ==============================================
-DEEPSEEK_API_KEY = "sk-c6b33847b8534d4c993574ccb6bed36c"
+DEEPSEEK_API_KEY = ""
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 HISTORY_FILE = "user_history.json"
 
