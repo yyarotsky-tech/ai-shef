@@ -79,42 +79,66 @@ def extract_recipe_name(text):
     return "Рецепт без названия"
 
 def extract_shopping_list(text):
-    """Улучшенная функция для извлечения списка покупок из ответа ассистента"""
+    """Собирает все продукты из всех рецептов в ответе"""
     lines = text.split("\n")
     shopping_items = []
-    in_shopping_section = False
-    skip_keywords = ["рецепт", "инструкция", "шаг", "совет", "таймлайн", "подача", "приятного", "аппетита"]
+    in_product_section = False
+    skip_keywords = [
+        "время", "шаг", "совет", "подача", "приятного", "аппетита", 
+        "замариновать", "нарезать", "открыть", "разжечь", "сварить", 
+        "остудить", "снять", "разлить", "выложить", "подавать", 
+        "смешать", "добавить", "посолить", "поперчить"
+    ]
     
+    # Сначала ищем секции с продуктами
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
-        # Проверяем начало секции списка
-        if "Список" in line and ("продукт" in line or "покуп" in line):
-            in_shopping_section = True
+        
+        # Проверяем начало секции с продуктами
+        if "Продукты" in line or "Список продуктов" in line or "Список покупок" in line or "Ингредиенты" in line:
+            in_product_section = True
             continue
-            
-        if in_shopping_section:
+        
+        # Если мы в секции продуктов
+        if in_product_section:
+            # Если встречаем новый заголовок — выходим
+            if line.startswith("**") and not line.startswith("-"):
+                in_product_section = False
+                continue
+            # Если строка начинается с маркера списка
             if line.startswith(("- ", "• ", "* ")):
                 item = line[2:].strip()
+                # Фильтруем мусор
                 if item and len(item) < 100 and not any(kw in item.lower() for kw in skip_keywords):
-                    shopping_items.append(item)
-            elif line and ":" in line and not line.startswith("-"):
-                if any(kw in line.lower() for kw in ["рецепт", "инструкция", "шаг", "совет", "подача", "время"]):
-                    break
-                if len(line) > 80 and not line.startswith("-"):
-                    break
+                    # Оставляем только ингредиенты с единицами измерения или явными продуктами
+                    if any(x in item for x in ["г", "кг", "мл", "л", "шт", "ст.", "ч.л.", "зубчик", "пучок", "банка", "упаковка"]):
+                        shopping_items.append(item)
+                    # Или если это явный продукт
+                    elif not any(kw in item.lower() for kw in ["вода", "соль", "перец", "масло", "сахар", "зелень", "лед", "кубик"]):
+                        shopping_items.append(item)
     
+    # Если ничего не нашли — пробуем найти все строки с продуктами по маркерам
     if not shopping_items:
         for line in lines:
             line = line.strip()
             if line.startswith(("- ", "• ", "* ")):
                 item = line[2:].strip()
                 if item and len(item) < 100 and not any(kw in item.lower() for kw in skip_keywords):
-                    shopping_items.append(item)
+                    # Проверяем, похоже ли на продукт
+                    if any(x in item for x in ["г", "кг", "мл", "л", "шт", "ст.", "ч.л.", "зубчик", "пучок", "банка", "упаковка", "лимон", "мясо", "салат", "сыр", "хлеб", "масло"]):
+                        shopping_items.append(item)
     
-    return shopping_items
+    # Убираем дубли
+    seen = set()
+    unique_items = []
+    for item in shopping_items:
+        if item not in seen:
+            seen.add(item)
+            unique_items.append(item)
+    
+    return unique_items
 
 def is_follow_up(text):
     """Проверяет, является ли ввод уточнением"""
