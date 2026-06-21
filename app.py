@@ -5,14 +5,16 @@ import os
 from datetime import datetime
 
 # ==============================================
-#  НАСТРОЙКИ
+#  НАСТРОЙКИ (RouterAI)
 # ==============================================
+# Читаем API-ключ из Secrets (на Streamlit Cloud) или из переменной окружения (локально)
 try:
-    DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
+    ROUTERAI_API_KEY = st.secrets["ROUTERAI_API_KEY"]
 except Exception:
-    DEEPSEEK_API_KEY = "sk-c6b33847b8534d4c993574ccb6bed36c"
+    # Запасной вариант для локальной разработки
+    ROUTERAI_API_KEY = "sk-0LSxndLkCPSamb9xc4PXk8feuTp8vNyd"
 
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+ROUTERAI_URL = "https://api.routerai.com/v1/chat/completions"  # замени, если эндпоинт другой
 HISTORY_FILE = "user_history.json"
 
 # ==============================================
@@ -78,11 +80,11 @@ def extract_recipe_name(text):
     return "Рецепт без названия"
 
 # ==============================================
-#  ФУНКЦИЯ ВЫЗОВА DEEPSEEK
+#  ФУНКЦИЯ ВЫЗОВА ROUTERAI
 # ==============================================
-def call_deepseek(system_prompt, user_content):
+def call_routerai(system_prompt, user_content):
     payload = {
-        "model": "deepseek-chat",
+        "model": "gpt-4o-mini",  # или другая модель, доступная в RouterAI
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -91,15 +93,15 @@ def call_deepseek(system_prompt, user_content):
         "max_tokens": 3500
     }
     headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Authorization": f"Bearer {ROUTERAI_API_KEY}",
         "Content-Type": "application/json"
     }
     try:
-        response = requests.post(DEEPSEEK_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(ROUTERAI_URL, json=payload, headers=headers, timeout=30)
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"]
         else:
-            return f"Ошибка API: {response.status_code}"
+            return f"Ошибка API: {response.status_code} - {response.text}"
     except Exception as e:
         return f"Ошибка соединения: {e}"
 
@@ -211,7 +213,7 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
     if rejected_variants:
         user_content += f". Не предлагай: {', '.join(rejected_variants)}"
 
-    return call_deepseek(system_prompt, user_content)
+    return call_routerai(system_prompt, user_content)
 
 # ==============================================
 #  ФУНКЦИЯ ДЛЯ ОТКРЫТИЯ РЕЦЕПТА В ЧАТЕ
