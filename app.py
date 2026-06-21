@@ -2,19 +2,18 @@ import streamlit as st
 import requests
 import json
 import os
+import re
 from datetime import datetime
 
 # ==============================================
 #  НАСТРОЙКИ (RouterAI)
 # ==============================================
-# Читаем API-ключ из Secrets (на Streamlit Cloud) или из переменной окружения (локально)
 try:
     ROUTERAI_API_KEY = st.secrets["ROUTERAI_API_KEY"]
 except Exception:
-    # Запасной вариант для локальной разработки
     ROUTERAI_API_KEY = "sk-0LSxndLkCPSamb9xc4PXk8feuTp8vNyd"
 
-ROUTERAI_URL = "https://routerai.ru/api/v1/chat/completions"  # замени, если эндпоинт другой
+ROUTERAI_URL = "https://routerai.ru/api/v1/chat/completions"
 HISTORY_FILE = "user_history.json"
 
 # ==============================================
@@ -79,12 +78,37 @@ def extract_recipe_name(text):
             return line[:60]
     return "Рецепт без названия"
 
+def extract_shopping_list(text):
+    """Извлекает список покупок из ответа ассистента"""
+    lines = text.split("\n")
+    shopping_items = []
+    in_shopping_section = False
+    
+    for line in lines:
+        line = line.strip()
+        if line.startswith("Список продуктов:") or line.startswith("Список покупок:"):
+            in_shopping_section = True
+            continue
+        if in_shopping_section:
+            if line.startswith(("- ", "• ", "* ")):
+                shopping_items.append(line[2:].strip())
+            elif line and ":" in line and not line.startswith("**"):
+                # конец секции
+                break
+    return shopping_items
+
+def is_follow_up(text):
+    """Проверяет, является ли ввод уточнением (список покупок, заменить, добавить и т.д.)"""
+    follow_up_keywords = ["список покупок", "купить", "заменить", "добавить", "убрать", "можно без", "вместо", "сколько", "как", "ещё", "другой"]
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in follow_up_keywords)
+
 # ==============================================
 #  ФУНКЦИЯ ВЫЗОВА ROUTERAI
 # ==============================================
 def call_routerai(system_prompt, user_content):
     payload = {
-        "model": "deepseek/deepseek-v4-flash",  # или другая модель, доступная в RouterAI
+        "model": "deepseek/deepseek-v4-flash",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -214,6 +238,38 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
         user_content += f". Не предлагай: {', '.join(rejected_variants)}"
 
     return call_routerai(system_prompt, user_content)
+
+# ==============================================
+#  ОБРАБОТЧИК УТОЧНЕНИЙ
+# ==============================================
+def handle_follow_up(prompt, last_response):
+    """Обрабатывает уточнения к последнему ответу"""
+    prompt_lower = prompt.lower()
+    
+    # Список покупок
+    if "список покупок" in prompt_lower or "купить" in prompt_lower:
+        shopping_items = extract_shopping_list(last_response)
+        if shopping_items:
+            response = "**🛒 Список покупок:**\n\n" + "\n".join([f"- {item}" for item in shopping_items])
+        else:
+            # Спрашиваем уточнение
+            response = """Не удалось автоматически извлечь список покупок из меню. Вы хотите:
+1. Получить общий список покупок для всего меню (я переспрошу ИИ).
+2. Уточнить, для какого именно блюда нужен список.
+
+Напишите "общий" или "для [название блюда]""""
+        return response
+    
+    # Замена продукта
+    if "заменить" in prompt_lower:
+        return f"Чтобы заменить продукт, напишите конкретно: 'заменить [продукт] на [другой продукт]'"
+    
+    # Общее уточнение
+    if "что" in prompt_lower or "как" in prompt_lower or "можно" in prompt_lower:
+        # Задаём уточняющий вопрос
+        return f"Уточните, что именно вы хотите узнать о меню: список покупок, замену продуктов, время приготовления или что-то другое?"
+    
+    return None
 
 # ==============================================
 #  ФУНКЦИЯ ДЛЯ ОТКРЫТИЯ РЕЦЕПТА В ЧАТЕ
@@ -369,8 +425,27 @@ if tab == "🏠 Главная":
     if prompt := st.chat_input("Опиши ситуацию или задай вопрос..."):
         st.session_state.messages.append({"role": "user", "content": prompt, "is_variant": False})
         
-        if prompt.startswith("Хочу другой вариант"):
-            generate_next_variant()
+        # Проверяем, является ли это уточнением к последнему ответу
+        if len(st.session_state.messages) > 1:
+            # Находим последний ответ ассистента
+            last_assistant_response = None
+            for msg in reversed(st.session_state.messages):
+                if msg["role"] == "assistant" and msg.get("is_variant", False):
+                    last_assistant_response = msg["content"]
+                    break
+            
+            if last_assistant_response and is_follow_up(prompt):
+                follow_up_response = handle_follow_up(prompt, last_assistant_response)
+                if follow_up_response:
+                    with st.chat_message("assistant"):
+                        st.markdown(follow_up_response)
+                        st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
+                    st.rerun()
+                else:
+                    # Если не смогли обработать уточнение, передаём в новый запрос
+                    handle_new_query(prompt)
+            else:
+                handle_new_query(prompt)
         else:
             handle_new_query(prompt)
     
