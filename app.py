@@ -93,12 +93,11 @@ def extract_shopping_list(text):
             if line.startswith(("- ", "• ", "* ")):
                 shopping_items.append(line[2:].strip())
             elif line and ":" in line and not line.startswith("**"):
-                # конец секции
                 break
     return shopping_items
 
 def is_follow_up(text):
-    """Проверяет, является ли ввод уточнением (список покупок, заменить, добавить и т.д.)"""
+    """Проверяет, является ли ввод уточнением"""
     follow_up_keywords = ["список покупок", "купить", "заменить", "добавить", "убрать", "можно без", "вместо", "сколько", "как", "ещё", "другой"]
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in follow_up_keywords)
@@ -174,7 +173,6 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 Тон: заботливый, дружелюбный, без давления.
 """
     else:
-        # Проверяем, является ли запрос сложным (перечисление нескольких блюд)
         is_complex = any(keyword in query.lower() for keyword in ["и", "плюс", "с", "а также"]) and len(query.split()) > 10
         
         if is_complex:
@@ -252,7 +250,6 @@ def handle_follow_up(prompt, last_response):
         if shopping_items:
             response = "**🛒 Список покупок:**\n\n" + "\n".join([f"- {item}" for item in shopping_items])
         else:
-            # Спрашиваем уточнение
             response = """Не удалось автоматически извлечь список покупок из меню. Вы хотите:
 1. Получить общий список покупок для всего меню (я переспрошу ИИ).
 2. Уточнить, для какого именно блюда нужен список.
@@ -262,12 +259,11 @@ def handle_follow_up(prompt, last_response):
     
     # Замена продукта
     if "заменить" in prompt_lower:
-        return f"Чтобы заменить продукт, напишите конкретно: 'заменить [продукт] на [другой продукт]'"
+        return "Чтобы заменить продукт, напишите конкретно: 'заменить [продукт] на [другой продукт]'"
     
     # Общее уточнение
     if "что" in prompt_lower or "как" in prompt_lower or "можно" in prompt_lower:
-        # Задаём уточняющий вопрос
-        return f"Уточните, что именно вы хотите узнать о меню: список покупок, замену продуктов, время приготовления или что-то другое?"
+        return "Уточните, что именно вы хотите узнать о меню: список покупок, замену продуктов, время приготовления или что-то другое?"
     
     return None
 
@@ -425,9 +421,7 @@ if tab == "🏠 Главная":
     if prompt := st.chat_input("Опиши ситуацию или задай вопрос..."):
         st.session_state.messages.append({"role": "user", "content": prompt, "is_variant": False})
         
-        # Проверяем, является ли это уточнением к последнему ответу
         if len(st.session_state.messages) > 1:
-            # Находим последний ответ ассистента
             last_assistant_response = None
             for msg in reversed(st.session_state.messages):
                 if msg["role"] == "assistant" and msg.get("is_variant", False):
@@ -442,7 +436,6 @@ if tab == "🏠 Главная":
                         st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
                     st.rerun()
                 else:
-                    # Если не смогли обработать уточнение, передаём в новый запрос
                     handle_new_query(prompt)
             else:
                 handle_new_query(prompt)
