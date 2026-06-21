@@ -89,7 +89,7 @@ def call_routerai(system_prompt, user_content):
             {"role": "user", "content": user_content}
         ],
         "temperature": 0.7,
-        "max_tokens": 3500
+        "max_tokens": 6000  # Увеличил с 3500 до 6000 для длинных списков
     }
     headers = {
         "Authorization": f"Bearer {ROUTERAI_API_KEY}",
@@ -217,7 +217,6 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 #  ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ СПИСКА ПОКУПОК
 # ==============================================
 def generate_shopping_list(menu_text, people_count=6):
-    """Отправляет меню в RouterAI и получает чистый список покупок"""
     system_prompt = f"""
 Ты — помощник по кулинарии. Твоя задача — составить список покупок для приготовления меню.
 
@@ -246,12 +245,10 @@ def generate_shopping_list(menu_text, people_count=6):
 #  ОБРАБОТЧИК УТОЧНЕНИЙ
 # ==============================================
 def handle_follow_up(prompt, last_response):
-    """Обрабатывает уточнения к последнему ответу"""
     prompt_lower = prompt.lower()
     
     if "список" in prompt_lower and ("продуктов" in prompt_lower or "покупок" in prompt_lower):
-        response = generate_shopping_list(last_response, 6)
-        return response
+        return generate_shopping_list(last_response, 6)
     
     if "заменить" in prompt_lower:
         return "Чтобы заменить продукт, напишите: 'заменить [продукт] на [другой продукт]'"
@@ -332,7 +329,7 @@ def handle_new_query(prompt):
         st.rerun()
 
 # ==============================================
-#  ЧАТ-ИНТЕРФЕЙС (С КНОПКОЙ "СПИСОК ПОКУПОК")
+#  ЧАТ-ИНТЕРФЕЙС
 # ==============================================
 st.set_page_config(page_title="AI-Шеф", page_icon="🍳")
 
@@ -391,7 +388,6 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
-    # Отображение чата с кнопками
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
