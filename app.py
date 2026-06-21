@@ -14,7 +14,7 @@ except Exception:
     # Запасной вариант для локальной разработки
     ROUTERAI_API_KEY = "sk-0LSxndLkCPSamb9xc4PXk8feuTp8vNyd"
 
-ROUTERAI_URL = "https://api.routerai.com/v1/chat/completions"  # замени, если эндпоинт другой
+ROUTERAI_URL = "https://routerai.ru/api/v1/chat/completions"  # замени, если эндпоинт другой
 HISTORY_FILE = "user_history.json"
 
 # ==============================================
@@ -84,7 +84,7 @@ def extract_recipe_name(text):
 # ==============================================
 def call_routerai(system_prompt, user_content):
     payload = {
-        "model": "gpt-4o-mini",  # или другая модель, доступная в RouterAI
+        "model": "deepseek/deepseek-v4-flash",  # или другая модель, доступная в RouterAI
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -97,7 +97,7 @@ def call_routerai(system_prompt, user_content):
         "Content-Type": "application/json"
     }
     try:
-        response = requests.post(ROUTERAI_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(ROUTERAI_URL, json=payload, headers=headers, timeout=60)
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"]
         else:
