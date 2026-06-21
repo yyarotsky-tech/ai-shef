@@ -83,51 +83,34 @@ def extract_shopping_list(text):
     lines = text.split("\n")
     shopping_items = []
     in_product_section = False
-    skip_keywords = [
-        "время", "шаг", "совет", "подача", "приятного", "аппетита", 
-        "замариновать", "нарезать", "открыть", "разжечь", "сварить", 
-        "остудить", "снять", "разлить", "выложить", "подавать", 
-        "смешать", "добавить", "посолить", "поперчить"
-    ]
+    skip_keywords = ["время", "шаг", "совет", "подача", "приятного", "аппетита", "замариновать", "нарезать", "открыть", "разжечь", "сварить", "остудить", "запечь", "смешать"]
     
-    # Сначала ищем секции с продуктами
     for line in lines:
         line = line.strip()
         if not line:
             continue
         
-        # Проверяем начало секции с продуктами
         if "Продукты" in line or "Список продуктов" in line or "Список покупок" in line or "Ингредиенты" in line:
             in_product_section = True
             continue
         
-        # Если мы в секции продуктов
         if in_product_section:
-            # Если встречаем новый заголовок — выходим
             if line.startswith("**") and not line.startswith("-"):
                 in_product_section = False
                 continue
-            # Если строка начинается с маркера списка
             if line.startswith(("- ", "• ", "* ")):
                 item = line[2:].strip()
-                # Фильтруем мусор
                 if item and len(item) < 100 and not any(kw in item.lower() for kw in skip_keywords):
-                    # Оставляем только ингредиенты с единицами измерения или явными продуктами
-                    if any(x in item for x in ["г", "кг", "мл", "л", "шт", "ст.", "ч.л.", "зубчик", "пучок", "банка", "упаковка"]):
-                        shopping_items.append(item)
-                    # Или если это явный продукт
-                    elif not any(kw in item.lower() for kw in ["вода", "соль", "перец", "масло", "сахар", "зелень", "лед", "кубик"]):
+                    if any(x in item for x in ["г", "кг", "мл", "л", "шт", "ст.", "ч.л.", "зубчик", "пучок", "банка", "упаковка", "веточка", "грамм", "килограмм"]):
                         shopping_items.append(item)
     
-    # Если ничего не нашли — пробуем найти все строки с продуктами по маркерам
     if not shopping_items:
         for line in lines:
             line = line.strip()
             if line.startswith(("- ", "• ", "* ")):
                 item = line[2:].strip()
                 if item and len(item) < 100 and not any(kw in item.lower() for kw in skip_keywords):
-                    # Проверяем, похоже ли на продукт
-                    if any(x in item for x in ["г", "кг", "мл", "л", "шт", "ст.", "ч.л.", "зубчик", "пучок", "банка", "упаковка", "лимон", "мясо", "салат", "сыр", "хлеб", "масло"]):
+                    if any(x in item for x in ["г", "кг", "мл", "л", "шт", "ст.", "ч.л.", "зубчик", "пучок", "банка", "упаковка", "лимон", "мясо", "салат", "сыр", "хлеб", "масло", "лук", "чеснок"]):
                         shopping_items.append(item)
     
     # Убираем дубли
@@ -139,12 +122,6 @@ def extract_shopping_list(text):
             unique_items.append(item)
     
     return unique_items
-
-def is_follow_up(text):
-    """Проверяет, является ли ввод уточнением"""
-    follow_up_keywords = ["список покупок", "купить", "заменить", "добавить", "убрать", "можно без", "вместо", "сколько", "как", "ещё", "другой"]
-    text_lower = text.lower()
-    return any(keyword in text_lower for keyword in follow_up_keywords)
 
 # ==============================================
 #  ФУНКЦИЯ ВЫЗОВА ROUTERAI
@@ -288,7 +265,7 @@ def handle_follow_up(prompt, last_response):
     """Обрабатывает уточнения к последнему ответу"""
     prompt_lower = prompt.lower()
     
-    if "список покупок" in prompt_lower or "купить" in prompt_lower:
+    if "список" in prompt_lower and ("продуктов" in prompt_lower or "покупок" in prompt_lower):
         shopping_items = extract_shopping_list(last_response)
         if shopping_items:
             response = "**🛒 Список покупок:**\n\n" + "\n".join([f"- {item}" for item in shopping_items])
@@ -375,7 +352,7 @@ def handle_new_query(prompt):
         st.rerun()
 
 # ==============================================
-#  ЧАТ-ИНТЕРФЕЙС
+#  ЧАТ-ИНТЕРФЕЙС (С КНОПКОЙ "СПИСОК ПОКУПОК")
 # ==============================================
 st.set_page_config(page_title="AI-Шеф", page_icon="🍳")
 
@@ -434,12 +411,14 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
+    # Отображение чата с кнопками
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             
+            # Если это сообщение ассистента и это вариант — добавляем кнопки
             if message["role"] == "assistant" and message.get("is_variant", False):
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     if st.button("✅ Выбрать", key=f"choose_{idx}"):
                         full_text = message["content"]
@@ -454,6 +433,16 @@ if tab == "🏠 Главная":
                 with col2:
                     if st.button("🔄 Ещё вариант", key=f"think_{idx}"):
                         generate_next_variant()
+                with col3:
+                    # Кнопка "Список покупок"
+                    if st.button("🛒 Список покупок", key=f"shopping_{idx}"):
+                        shopping_items = extract_shopping_list(message["content"])
+                        if shopping_items:
+                            response = "**🛒 Список покупок:**\n\n" + "\n".join([f"- {item}" for item in shopping_items])
+                        else:
+                            response = "Не удалось автоматически извлечь список покупок. Напишите 'общий' для всего меню или уточните блюдо."
+                        st.session_state.messages.append({"role": "assistant", "content": response, "is_variant": False})
+                        st.rerun()
     
     if prompt := st.chat_input("Опиши ситуацию или задай вопрос..."):
         st.session_state.messages.append({"role": "user", "content": prompt, "is_variant": False})
