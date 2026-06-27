@@ -80,6 +80,16 @@ def log_substitution(original, replacement):
     })
     save_user_profile(profile)
 
+def log_budget(budget):
+    profile = get_user_profile()
+    profile["last_budget"] = budget
+    save_user_profile(profile)
+
+def log_people(people):
+    profile = get_user_profile()
+    profile["last_people"] = people
+    save_user_profile(profile)
+
 # ==============================================
 #  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==============================================
@@ -99,6 +109,107 @@ def extract_recipe_name(text):
         if line and not line.startswith(("#", "*", "-", "**", "Вариант")):
             return line[:60]
     return "Рецепт без названия"
+
+def extract_people_and_budget(text):
+    text_lower = text.lower()
+    people = None
+    budget = None
+    
+    people_match = re.search(r'на\s+(\d+)\s+человек', text_lower)
+    if people_match:
+        people = int(people_match.group(1))
+    
+    budget_match = re.search(r'бюджет\s+(\d+)|(\d+)\s*[р₽]', text_lower)
+    if budget_match:
+        budget = int(budget_match.group(1) or budget_match.group(2))
+    
+    return people, budget
+
+def format_recipe(text):
+    """Превращает текстовый ответ AI в структурированный вид"""
+    lines = text.split('\n')
+    
+    # Ищем название
+    title = "Рецепт"
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith(('**', 'Список', 'Пошаговая', 'Время', 'Бюджет', 'Совет')):
+            title = line
+            break
+    
+    # Ищем ингредиенты
+    ingredients = []
+    in_ingredients = False
+    for line in lines:
+        line = line.strip()
+        if line.startswith('Список продуктов:') or line.startswith('**Список продуктов:**'):
+            in_ingredients = True
+            continue
+        if in_ingredients and line.startswith('-'):
+            ingredients.append(line[2:].strip())
+        elif in_ingredients and line and not line.startswith('-'):
+            break
+    
+    # Ищем шаги
+    steps = []
+    in_steps = False
+    for line in lines:
+        line = line.strip()
+        if line.startswith('Пошаговая инструкция:') or line.startswith('**Пошаговая инструкция:**'):
+            in_steps = True
+            continue
+        if in_steps and line and line[0].isdigit() and '. ' in line:
+            steps.append(line)
+        elif in_steps and line and not line.startswith('Совет'):
+            pass
+    
+    # Ищем время и бюджет
+    time_match = re.search(r'(\d+)\s*мин', text)
+    budget_match = re.search(r'(\d+)\s*[₽р]', text)
+    
+    return {
+        'title': title,
+        'ingredients': ingredients,
+        'steps': steps,
+        'time': time_match.group(1) if time_match else None,
+        'budget': budget_match.group(1) if budget_match else None
+    }
+
+def display_formatted_recipe(text):
+    """Выводит структурированный рецепт через Streamlit"""
+    recipe = format_recipe(text)
+    
+    # Заголовок
+    st.markdown(f"## {recipe['title']}")
+    
+    # Мета-информация (время и бюджет)
+    meta_parts = []
+    if recipe['time']:
+        meta_parts.append(f"⏱️ {recipe['time']} мин")
+    if recipe['budget']:
+        meta_parts.append(f"💰 {recipe['budget']} ₽")
+    if meta_parts:
+        st.caption(" | ".join(meta_parts))
+    
+    # Ингредиенты (в две колонки)
+    if recipe['ingredients']:
+        st.markdown("**Ингредиенты:**")
+        col1, col2 = st.columns(2)
+        for i, item in enumerate(recipe['ingredients']):
+            if i % 2 == 0:
+                col1.markdown(f"- {item}")
+            else:
+                col2.markdown(f"- {item}")
+    
+    # Шаги
+    if recipe['steps']:
+        st.markdown("**Шаги:**")
+        for step in recipe['steps']:
+            st.markdown(step)
+    
+    # Если парсинг не сработал — выводим как есть
+    if not recipe['ingredients'] and not recipe['steps']:
+        st.markdown(text)
 
 # ==============================================
 #  ФУНКЦИЯ ВЫЗОВА ROUTERAI
@@ -135,6 +246,20 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
     situation_types = profile.get("situation_types", [])
     substitutions = profile.get("substitutions", [])
     
+    default_people = profile.get("default_people", 2)
+    default_budget = profile.get("default_budget", 300)
+    
+    people_in_query, budget_in_query = extract_people_and_budget(query)
+    
+    if people_in_query:
+        default_people = people_in_query
+        profile["default_people"] = people_in_query
+        save_user_profile(profile)
+    if budget_in_query:
+        default_budget = budget_in_query
+        profile["default_budget"] = budget_in_query
+        save_user_profile(profile)
+    
     substitution_context = ""
     if substitutions:
         recent_subs = substitutions[-5:]
@@ -147,6 +272,8 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 
     is_week_plan = any(keyword in query.lower() for keyword in ["план на неделю", "меню на неделю", "неделя"])
 
+    budget_context = f"\nБюджет на покупку продуктов: {default_budget} ₽. Количество человек: {default_people}. Старайся уложиться в бюджет."
+
     if is_week_plan:
         system_prompt = f"""
 Ты — помощник по планированию питания. Пользователь хочет составить план питания на неделю.
@@ -155,14 +282,17 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 - Он уже выбирал рецепты: {', '.join(chosen_recipes) if chosen_recipes else 'нет данных'}
 - Его типичные ситуации: {', '.join(situation_types) if situation_types else 'нет данных'}
 {substitution_context}
+{budget_context}
 
 Запрос пользователя: {query}
+
+В начале ответа обязательно укажи бюджет и количество человек, на которые рассчитан план. Например: "План питания на {default_people} человек, бюджет {default_budget} ₽".
 
 Твоя задача — составить чёткий план на неделю.
 
 Алгоритм:
-1. Определи, сколько человек будет питаться по плану (если не указано — 1–2 человека).
-2. Определи бюджет (если не указано — 2000–3000 ₽ на неделю).
+1. Определи, сколько человек будет питаться по плану (если не указано — {default_people} человек).
+2. Определи бюджет (если не указано — {default_budget} ₽ на неделю).
 3. Составь меню на 7 дней:
    - Завтрак, обед, ужин для каждого дня.
    - Учитывай, что блюда не должны повторяться чаще 2 раз в неделю.
@@ -189,8 +319,11 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 - Он уже выбирал рецепты: {', '.join(chosen_recipes) if chosen_recipes else 'нет данных'}
 - Его типичные ситуации: {', '.join(situation_types) if situation_types else 'нет данных'}
 {substitution_context}
+{budget_context}
 
 Запрос пользователя: {query}
+
+В начале ответа обязательно укажи бюджет и количество человек, на которые рассчитано меню. Например: "Меню на {default_people} человек, бюджет {default_budget} ₽".
 
 Твоя задача — НЕ предлагать одно новое блюдо, а:
 1. Определи, какие блюда перечислены в запросе.
@@ -217,11 +350,14 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 - Он уже выбирал рецепты: {', '.join(chosen_recipes) if chosen_recipes else 'нет данных'}
 - Его типичные ситуации: {', '.join(situation_types) if situation_types else 'нет данных'}
 {substitution_context}
+{budget_context}
 
 Если он уже отклонял какие-то варианты в этом диалоге, не предлагай их снова.
 {previous_context}
 
 Ситуация пользователя: {query}
+
+В начале ответа обязательно укажи бюджет и количество человек, на которые рассчитан рецепт. Например: "Рецепт на {default_people} человек, бюджет {default_budget} ₽".
 
 Твоя задача — дать один чёткий практичный вариант.
 
@@ -248,7 +384,7 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 # ==============================================
 #  ГЕНЕРАЦИЯ СПИСКА ПОКУПОК
 # ==============================================
-def generate_shopping_list(menu_text, people_count=6):
+def generate_shopping_list(menu_text, people_count=2, budget=300):
     system_prompt = f"""
 Ты — помощник по кулинарии. Твоя задача — составить список покупок для приготовления меню.
 
@@ -261,25 +397,25 @@ def generate_shopping_list(menu_text, people_count=6):
 3. Сгруппируй продукты по категориям: овощи, мясо/рыба, бакалея, молочка, специи, напитки.
 4. Если в меню есть готовые продукты (например, маринады, соленья) — укажи их в соответствующей категории.
 5. Если продукт уже есть дома (указано в меню) — отметь это.
-6. Выдай ТОЛЬКО список продуктов, без шагов, советов и таймлайнов.
-7. Формат ответа: маркированный список, каждый пункт начинается с "- ".
+6. Общая стоимость продуктов не должна превышать {budget} ₽. Если превышает — предложи замены, чтобы уложиться в бюджет.
+7. Выдай ТОЛЬКО список продуктов, без шагов, советов и таймлайнов.
+8. Формат ответа: маркированный список, каждый пункт начинается с "- ".
 
 Пример ответа:
-- Куриное филе — 600 г (купить)
+- Куриное филе — 600 г (купить) — ~200 ₽
 - Лук репчатый — 2 шт. (есть дома)
-- Сметана — 200 г (купить)
+- Сметана — 200 г (купить) — ~80 ₽
 """
-    user_content = f"Составь список покупок для этого меню на {people_count} человек."
+    user_content = f"Составь список покупок для этого меню на {people_count} человек с бюджетом {budget} ₽."
     
     return call_routerai(system_prompt, user_content)
 
 # ==============================================
-#  ОБРАБОТЧИК УТОЧНЕНИЙ (универсальный)
+#  ОБРАБОТЧИК УТОЧНЕНИЙ
 # ==============================================
 def handle_follow_up(prompt, last_response):
     prompt_lower = prompt.lower()
     
-    # 1. Замена продукта
     if "заменить" in prompt_lower:
         match = re.search(r'заменить\s+([А-Яа-я\s]+)\s+на\s+([А-Яа-я\s]+)', prompt_lower)
         if match:
@@ -290,13 +426,15 @@ def handle_follow_up(prompt, last_response):
         else:
             return "Чтобы заменить продукт, напишите: 'заменить [продукт] на [другой продукт]'"
     
-    # 2. Список покупок
     if "список" in prompt_lower and ("продуктов" in prompt_lower or "покупок" in prompt_lower):
-        return generate_shopping_list(last_response, 6)
+        profile = get_user_profile()
+        people = profile.get("default_people", 2)
+        budget = profile.get("default_budget", 300)
+        return generate_shopping_list(last_response, people, budget)
     
-    # 3. Вопросы о количестве, времени, заменах — отправляем в RouterAI с контекстом
-    # Это универсальный обработчик для любых уточнений по текущему рецепту
     if "?" in prompt or "сколько" in prompt_lower or "много" in prompt_lower or "мало" in prompt_lower or "можно" in prompt_lower or "как" in prompt_lower:
+        profile = get_user_profile()
+        people = profile.get("default_people", 2)
         system_prompt = f"""
 Ты — помощник по кулинарии. Пользователь задаёт вопрос по текущему рецепту.
 
@@ -305,7 +443,7 @@ def handle_follow_up(prompt, last_response):
 
 Вопрос пользователя: {prompt}
 
-Ответь на вопрос, учитывая контекст рецепта. Если вопрос о количестве ингредиента — уточни, на сколько человек рассчитан рецепт (по умолчанию 2), и предложи корректировку.
+Ответь на вопрос, учитывая контекст рецепта. Если вопрос о количестве ингредиента — уточни, на сколько человек рассчитан рецепт (по умолчанию {people}), и предложи корректировку.
 Будь конкретным и дружелюбным. Не предлагай новый рецепт, если пользователь не просит.
 """
         return call_routerai(system_prompt, prompt)
@@ -337,8 +475,7 @@ def handle_quick_scenario(scenario):
         result = generate_scenario(scenario, 0, [])
         st.session_state.previous_variants.append(result)
         
-        response = f"**Вариант 1**\n\n{result}"
-        st.session_state.messages.append({"role": "assistant", "content": response, "is_variant": True})
+        st.session_state.messages.append({"role": "assistant", "content": result, "is_variant": True})
         st.rerun()
 
 # ==============================================
@@ -358,8 +495,7 @@ def generate_next_variant():
             st.session_state.rejected_variants.append(new_variant)
             st.session_state.previous_variants.append(new_variant)
             
-            response = f"**Вариант {st.session_state.variant_counter}**\n\n{new_variant}"
-            st.session_state.messages.append({"role": "assistant", "content": response, "is_variant": True})
+            st.session_state.messages.append({"role": "assistant", "content": new_variant, "is_variant": True})
             st.rerun()
     else:
         st.info("Все варианты просмотрены")
@@ -378,8 +514,7 @@ def handle_new_query(prompt):
         result = generate_scenario(prompt, 0, [])
         st.session_state.previous_variants.append(result)
         
-        response = f"**Вариант 1**\n\n{result}"
-        st.session_state.messages.append({"role": "assistant", "content": response, "is_variant": True})
+        st.session_state.messages.append({"role": "assistant", "content": result, "is_variant": True})
         st.rerun()
 
 # ==============================================
@@ -401,6 +536,8 @@ if "previous_variants" not in st.session_state:
     st.session_state.previous_variants = []
 if "selected_tab" not in st.session_state:
     st.session_state.selected_tab = "🏠 Главная"
+if "show_people_input" not in st.session_state:
+    st.session_state.show_people_input = False
 
 # ==============================================
 #  БОКОВАЯ ПАНЕЛЬ / ВКЛАДКИ
@@ -408,7 +545,7 @@ if "selected_tab" not in st.session_state:
 st.sidebar.title("🍳 AI-Шеф")
 st.sidebar.markdown("---")
 
-tabs = ["🏠 Главная", "📋 Рецепты", "🤔 Или повторим?", "👤 Профиль"]
+tabs = ["🏠 Главная", "🍲 Вкусненькое", "👤 Профиль"]
 
 try:
     current_index = tabs.index(st.session_state.selected_tab)
@@ -442,14 +579,93 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
+    # ---- ЧИПСЫ ----
+    if "input_buffer" not in st.session_state:
+        st.session_state.input_buffer = ""
+    
+    st.caption("⚡ Быстро добавить настройки в запрос:")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.caption("👤 Человек")
+        chip_cols = st.columns(5)
+        people_options = ["2", "3", "4", "5"]
+        for i, p in enumerate(people_options):
+            with chip_cols[i]:
+                if st.button(p, key=f"people_{p}"):
+                    current = st.session_state.input_buffer
+                    if "на" in current:
+                        current = re.sub(r'на\s+\d+\s+человек', f'на {p} человек', current)
+                    else:
+                        current = current + (", " if current else "") + f"на {p} человек"
+                    st.session_state.input_buffer = current
+                    st.rerun()
+        with chip_cols[4]:
+            if st.button("6+", key="people_6plus"):
+                st.session_state.show_people_input = True
+                st.rerun()
+    
+    with col2:
+        st.caption("💰 Бюджет")
+        chip_cols = st.columns(4)
+        budget_options = ["300 ₽", "500 ₽", "800 ₽", "Безлимит"]
+        for i, b in enumerate(budget_options):
+            with chip_cols[i]:
+                if st.button(b, key=f"budget_{b}"):
+                    current = st.session_state.input_buffer
+                    if "бюджет" in current:
+                        if "Безлимит" in current:
+                            current = re.sub(r'бюджет\s+Безлимит', f'бюджет {b}', current)
+                        else:
+                            current = re.sub(r'бюджет\s+\d+\s*[р₽]', f'бюджет {b}', current)
+                    else:
+                        current = current + (", " if current else "") + f"бюджет {b}"
+                    st.session_state.input_buffer = current
+                    st.rerun()
+    
+    if st.session_state.show_people_input:
+        st.markdown("---")
+        st.caption("Введите количество человек (больше 6):")
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            custom_people = st.number_input(
+                "",
+                min_value=7,
+                max_value=20,
+                step=1,
+                key="custom_people_input",
+                label_visibility="collapsed"
+            )
+        with col2:
+            if st.button("✅ Применить", key="apply_custom_people"):
+                current = st.session_state.input_buffer
+                if "на" in current:
+                    current = re.sub(r'на\s+\d+\s+человек', f'на {custom_people} человек', current)
+                else:
+                    current = current + (", " if current else "") + f"на {custom_people} человек"
+                st.session_state.input_buffer = current
+                st.session_state.show_people_input = False
+                st.rerun()
+        with col3:
+            if st.button("❌ Отмена", key="cancel_custom_people"):
+                st.session_state.show_people_input = False
+                st.rerun()
+        st.markdown("---")
+    
+    st.markdown("---")
+    
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            if message["role"] == "assistant" and message.get("is_variant", False):
+                # Форматируем рецепт
+                display_formatted_recipe(message["content"])
+            else:
+                st.markdown(message["content"])
             
             if message["role"] == "assistant" and message.get("is_variant", False):
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
-                    if st.button("✅ Выбрать", key=f"choose_{idx}"):
+                    if st.button("✅ Выбрать", key=f"choose_{idx}", use_container_width=True):
                         full_text = message["content"]
                         recipe_name = extract_recipe_name(full_text)
                         save_user_history(
@@ -460,16 +676,25 @@ if tab == "🏠 Главная":
                         )
                         st.success(f"Сохранено: {recipe_name}")
                 with col2:
-                    if st.button("🔄 Ещё вариант", key=f"think_{idx}"):
+                    if st.button("🔄 Ещё", key=f"think_{idx}"):
                         generate_next_variant()
                 with col3:
-                    if st.button("🛒 Список покупок", key=f"shopping_{idx}"):
+                    if st.button("🛒 Список", key=f"shopping_{idx}"):
                         with st.spinner("Собираю список покупок..."):
-                            shopping_list = generate_shopping_list(message["content"], 6)
+                            profile = get_user_profile()
+                            people = profile.get("default_people", 2)
+                            budget = profile.get("default_budget", 300)
+                            shopping_list = generate_shopping_list(
+                                message["content"],
+                                people_count=people,
+                                budget=budget
+                            )
                             st.session_state.messages.append({"role": "assistant", "content": shopping_list, "is_variant": False})
                             st.rerun()
     
     if prompt := st.chat_input("Опиши ситуацию или задай вопрос..."):
+        if st.session_state.input_buffer != prompt:
+            st.session_state.input_buffer = prompt
         st.session_state.messages.append({"role": "user", "content": prompt, "is_variant": False})
         
         if len(st.session_state.messages) > 1:
@@ -497,10 +722,10 @@ if tab == "🏠 Главная":
     st.caption("🍳 AI-Шеф v1.0 — прототип")
 
 # ==============================================
-#  ВКЛАДКА «РЕЦЕПТЫ»
+#  ВКЛАДКА «ВКУСНЕНЬКОЕ»
 # ==============================================
-elif tab == "📋 Рецепты":
-    st.title("📋 Мои рецепты")
+elif tab == "🍲 Вкусненькое":
+    st.title("🍲 Моё вкусненькое")
     
     history = get_user_history()
     if not history:
@@ -518,48 +743,9 @@ elif tab == "📋 Рецепты":
                 st.markdown("---")
 
 # ==============================================
-#  ВКЛАДКА «ИЛИ ПОВТОРИМ?»
-# ==============================================
-elif tab == "🤔 Или повторим?":
-    st.title("🤔 Или повторим?")
-    
-    history = get_user_history()
-    if not history:
-        st.info("Вы ещё ничего не готовили. Начните прямо сейчас!")
-    else:
-        st.caption("Ваши последние выборы:")
-        for i, session in enumerate(reversed(history[:5])):
-            recipe_name = session.get("chosen_recipe", "")
-            full_recipe = session.get("full_recipe", recipe_name)
-            date = session.get("date", "")
-            if recipe_name:
-                st.markdown(f"**{i+1}. {recipe_name}**")
-                st.caption(f"Последний раз: {date}")
-                if st.button("Давай!", key=f"repeat_{i}"):
-                    open_recipe_in_chat(full_recipe)
-                st.markdown("---")
-
-# ==============================================
 #  ВКЛАДКА «ПРОФИЛЬ»
 # ==============================================
 elif tab == "👤 Профиль":
     st.title("👤 Профиль")
     
-    history = get_user_history()
-    st.metric("Всего рецептов", len(history))
-    
-    profile = get_user_profile()
-    substitutions = profile.get("substitutions", [])
-    if substitutions:
-        st.markdown("---")
-        st.subheader("🔄 Ваши замены")
-        for sub in substitutions[-5:]:
-            st.caption(f"{sub['original']} → {sub['replacement']} ({sub['date'][:10]})")
-    
-    st.markdown("---")
-    st.subheader("⛔ Я не ем")
-    st.caption("Пока настройка отключена, но скоро будет доступна")
-    
-    st.markdown("---")
-    st.subheader("🛒 Список покупок")
-    st.caption("Скоро здесь появится список продуктов из ваших рецептов")
+    history = get_user
