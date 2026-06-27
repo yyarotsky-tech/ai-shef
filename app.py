@@ -70,7 +70,6 @@ def save_user_history(query, chosen_recipe, full_recipe, situation_type, rating=
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def log_substitution(original, replacement):
-    """Сохраняет замену в историю пользователя"""
     profile = get_user_profile()
     if "substitutions" not in profile:
         profile["substitutions"] = []
@@ -136,7 +135,6 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
     situation_types = profile.get("situation_types", [])
     substitutions = profile.get("substitutions", [])
     
-    # Формируем контекст замен
     substitution_context = ""
     if substitutions:
         recent_subs = substitutions[-5:]
@@ -276,12 +274,12 @@ def generate_shopping_list(menu_text, people_count=6):
     return call_routerai(system_prompt, user_content)
 
 # ==============================================
-#  ОБРАБОТЧИК УТОЧНЕНИЙ
+#  ОБРАБОТЧИК УТОЧНЕНИЙ (универсальный)
 # ==============================================
 def handle_follow_up(prompt, last_response):
     prompt_lower = prompt.lower()
     
-    # Обработка замены
+    # 1. Замена продукта
     if "заменить" in prompt_lower:
         match = re.search(r'заменить\s+([А-Яа-я\s]+)\s+на\s+([А-Яа-я\s]+)', prompt_lower)
         if match:
@@ -292,12 +290,25 @@ def handle_follow_up(prompt, last_response):
         else:
             return "Чтобы заменить продукт, напишите: 'заменить [продукт] на [другой продукт]'"
     
-    # Список покупок
+    # 2. Список покупок
     if "список" in prompt_lower and ("продуктов" in prompt_lower or "покупок" in prompt_lower):
         return generate_shopping_list(last_response, 6)
     
-    if "что" in prompt_lower or "как" in prompt_lower or "можно" in prompt_lower:
-        return "Уточните, что именно вы хотите узнать: список покупок, замену продуктов, время приготовления или что-то другое?"
+    # 3. Вопросы о количестве, времени, заменах — отправляем в RouterAI с контекстом
+    # Это универсальный обработчик для любых уточнений по текущему рецепту
+    if "?" in prompt or "сколько" in prompt_lower or "много" in prompt_lower or "мало" in prompt_lower or "можно" in prompt_lower or "как" in prompt_lower:
+        system_prompt = f"""
+Ты — помощник по кулинарии. Пользователь задаёт вопрос по текущему рецепту.
+
+Рецепт, который пользователь смотрит:
+{last_response}
+
+Вопрос пользователя: {prompt}
+
+Ответь на вопрос, учитывая контекст рецепта. Если вопрос о количестве ингредиента — уточни, на сколько человек рассчитан рецепт (по умолчанию 2), и предложи корректировку.
+Будь конкретным и дружелюбным. Не предлагай новый рецепт, если пользователь не просит.
+"""
+        return call_routerai(system_prompt, prompt)
     
     return None
 
@@ -537,7 +548,6 @@ elif tab == "👤 Профиль":
     history = get_user_history()
     st.metric("Всего рецептов", len(history))
     
-    # Показываем сохранённые замены
     profile = get_user_profile()
     substitutions = profile.get("substitutions", [])
     if substitutions:
