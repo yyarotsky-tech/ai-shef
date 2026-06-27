@@ -26,6 +26,23 @@ def get_user_history():
         data = json.load(f)
     return data.get("sessions", [])
 
+def get_user_profile():
+    if not os.path.exists(HISTORY_FILE):
+        return {}
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("profile", {})
+
+def save_user_profile(profile):
+    if not os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump({"sessions": [], "profile": {}}, f, ensure_ascii=False, indent=2)
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data["profile"] = profile
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 def save_user_history(query, chosen_recipe, full_recipe, situation_type, rating=None):
     history = get_user_history()
     for session in history:
@@ -34,7 +51,7 @@ def save_user_history(query, chosen_recipe, full_recipe, situation_type, rating=
     
     if not os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump({"sessions": []}, f, ensure_ascii=False, indent=2)
+            json.dump({"sessions": [], "profile": {}}, f, ensure_ascii=False, indent=2)
 
     with open(HISTORY_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -52,11 +69,17 @@ def save_user_history(query, chosen_recipe, full_recipe, situation_type, rating=
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def get_user_profile():
-    sessions = get_user_history()
-    chosen = [s.get("chosen_recipe") for s in sessions if s.get("chosen_recipe")]
-    situations = [s.get("situation_type") for s in sessions if s.get("situation_type")]
-    return {"chosen_recipes": chosen, "situation_types": situations}
+def log_substitution(original, replacement):
+    """Сохраняет замену в историю пользователя"""
+    profile = get_user_profile()
+    if "substitutions" not in profile:
+        profile["substitutions"] = []
+    profile["substitutions"].append({
+        "original": original,
+        "replacement": replacement,
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+    save_user_profile(profile)
 
 # ==============================================
 #  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -89,7 +112,7 @@ def call_routerai(system_prompt, user_content):
             {"role": "user", "content": user_content}
         ],
         "temperature": 0.7,
-        "max_tokens": 6000  # Увеличил с 3500 до 6000 для длинных списков
+        "max_tokens": 6000
     }
     headers = {
         "Authorization": f"Bearer {ROUTERAI_API_KEY}",
@@ -111,6 +134,14 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
     profile = get_user_profile()
     chosen_recipes = profile.get("chosen_recipes", [])
     situation_types = profile.get("situation_types", [])
+    substitutions = profile.get("substitutions", [])
+    
+    # Формируем контекст замен
+    substitution_context = ""
+    if substitutions:
+        recent_subs = substitutions[-5:]
+        sub_text = ", ".join([f"{s['original']} → {s['replacement']}" for s in recent_subs])
+        substitution_context = f"\nУчти, что пользователь часто заменяет: {sub_text}. Если в рецепте есть {', '.join([s['original'] for s in recent_subs])}, предложи замены по умолчанию."
 
     previous_context = ""
     if previous_variants:
@@ -125,6 +156,7 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 Контекст:
 - Он уже выбирал рецепты: {', '.join(chosen_recipes) if chosen_recipes else 'нет данных'}
 - Его типичные ситуации: {', '.join(situation_types) if situation_types else 'нет данных'}
+{substitution_context}
 
 Запрос пользователя: {query}
 
@@ -158,6 +190,7 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 Контекст:
 - Он уже выбирал рецепты: {', '.join(chosen_recipes) if chosen_recipes else 'нет данных'}
 - Его типичные ситуации: {', '.join(situation_types) if situation_types else 'нет данных'}
+{substitution_context}
 
 Запрос пользователя: {query}
 
@@ -185,6 +218,7 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 Контекст:
 - Он уже выбирал рецепты: {', '.join(chosen_recipes) if chosen_recipes else 'нет данных'}
 - Его типичные ситуации: {', '.join(situation_types) if situation_types else 'нет данных'}
+{substitution_context}
 
 Если он уже отклонял какие-то варианты в этом диалоге, не предлагай их снова.
 {previous_context}
@@ -214,7 +248,7 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
     return call_routerai(system_prompt, user_content)
 
 # ==============================================
-#  ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ СПИСКА ПОКУПОК
+#  ГЕНЕРАЦИЯ СПИСКА ПОКУПОК
 # ==============================================
 def generate_shopping_list(menu_text, people_count=6):
     system_prompt = f"""
@@ -247,11 +281,20 @@ def generate_shopping_list(menu_text, people_count=6):
 def handle_follow_up(prompt, last_response):
     prompt_lower = prompt.lower()
     
+    # Обработка замены
+    if "заменить" in prompt_lower:
+        match = re.search(r'заменить\s+([А-Яа-я\s]+)\s+на\s+([А-Яа-я\s]+)', prompt_lower)
+        if match:
+            original = match.group(1).strip()
+            replacement = match.group(2).strip()
+            log_substitution(original, replacement)
+            return f"✅ Запомнил: заменяем **{original}** на **{replacement}**. В следующий раз буду предлагать с учётом этого."
+        else:
+            return "Чтобы заменить продукт, напишите: 'заменить [продукт] на [другой продукт]'"
+    
+    # Список покупок
     if "список" in prompt_lower and ("продуктов" in prompt_lower or "покупок" in prompt_lower):
         return generate_shopping_list(last_response, 6)
-    
-    if "заменить" in prompt_lower:
-        return "Чтобы заменить продукт, напишите: 'заменить [продукт] на [другой продукт]'"
     
     if "что" in prompt_lower or "как" in prompt_lower or "можно" in prompt_lower:
         return "Уточните, что именно вы хотите узнать: список покупок, замену продуктов, время приготовления или что-то другое?"
@@ -425,7 +468,7 @@ if tab == "🏠 Главная":
                     last_assistant_response = msg["content"]
                     break
             
-            if last_assistant_response and is_follow_up(prompt):
+            if last_assistant_response:
                 follow_up_response = handle_follow_up(prompt, last_assistant_response)
                 if follow_up_response:
                     with st.chat_message("assistant"):
@@ -493,6 +536,15 @@ elif tab == "👤 Профиль":
     
     history = get_user_history()
     st.metric("Всего рецептов", len(history))
+    
+    # Показываем сохранённые замены
+    profile = get_user_profile()
+    substitutions = profile.get("substitutions", [])
+    if substitutions:
+        st.markdown("---")
+        st.subheader("🔄 Ваши замены")
+        for sub in substitutions[-5:]:
+            st.caption(f"{sub['original']} → {sub['replacement']} ({sub['date'][:10]})")
     
     st.markdown("---")
     st.subheader("⛔ Я не ем")
