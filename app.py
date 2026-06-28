@@ -129,7 +129,6 @@ def format_recipe(text):
     """Превращает текстовый ответ AI в структурированный вид"""
     lines = text.split('\n')
     
-    # Ищем название
     title = "Рецепт"
     for line in lines:
         line = line.strip()
@@ -137,7 +136,6 @@ def format_recipe(text):
             title = line
             break
     
-    # Ищем ингредиенты
     ingredients = []
     in_ingredients = False
     for line in lines:
@@ -150,7 +148,6 @@ def format_recipe(text):
         elif in_ingredients and line and not line.startswith('-'):
             break
     
-    # Ищем шаги
     steps = []
     in_steps = False
     for line in lines:
@@ -160,10 +157,7 @@ def format_recipe(text):
             continue
         if in_steps and line and line[0].isdigit() and '. ' in line:
             steps.append(line)
-        elif in_steps and line and not line.startswith('Совет'):
-            pass
     
-    # Ищем время и бюджет
     time_match = re.search(r'(\d+)\s*мин', text)
     budget_match = re.search(r'(\d+)\s*[₽р]', text)
     
@@ -179,10 +173,8 @@ def display_formatted_recipe(text):
     """Выводит структурированный рецепт через Streamlit"""
     recipe = format_recipe(text)
     
-    # Заголовок
     st.markdown(f"## {recipe['title']}")
     
-    # Мета-информация (время и бюджет)
     meta_parts = []
     if recipe['time']:
         meta_parts.append(f"⏱️ {recipe['time']} мин")
@@ -191,7 +183,6 @@ def display_formatted_recipe(text):
     if meta_parts:
         st.caption(" | ".join(meta_parts))
     
-    # Ингредиенты (в две колонки)
     if recipe['ingredients']:
         st.markdown("**Ингредиенты:**")
         col1, col2 = st.columns(2)
@@ -201,13 +192,11 @@ def display_formatted_recipe(text):
             else:
                 col2.markdown(f"- {item}")
     
-    # Шаги
     if recipe['steps']:
         st.markdown("**Шаги:**")
         for step in recipe['steps']:
             st.markdown(step)
     
-    # Если парсинг не сработал — выводим как есть
     if not recipe['ingredients'] and not recipe['steps']:
         st.markdown(text)
 
@@ -579,7 +568,6 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
-    # ---- ЧИПСЫ ----
     if "input_buffer" not in st.session_state:
         st.session_state.input_buffer = ""
     
@@ -657,7 +645,6 @@ if tab == "🏠 Главная":
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             if message["role"] == "assistant" and message.get("is_variant", False):
-                # Форматируем рецепт
                 display_formatted_recipe(message["content"])
             else:
                 st.markdown(message["content"])
@@ -748,4 +735,31 @@ elif tab == "🍲 Вкусненькое":
 elif tab == "👤 Профиль":
     st.title("👤 Профиль")
     
-    history = get_user
+    history = get_user_history()
+    st.metric("Всего рецептов", len(history))
+    
+    profile = get_user_profile()
+    substitutions = profile.get("substitutions", [])
+    if substitutions:
+        st.markdown("---")
+        st.subheader("🔄 Ваши замены")
+        for sub in substitutions[-5:]:
+            st.caption(f"{sub['original']} → {sub['replacement']} ({sub['date'][:10]})")
+    
+    default_people = profile.get("default_people")
+    default_budget = profile.get("default_budget")
+    if default_people or default_budget:
+        st.markdown("---")
+        st.subheader("📊 Ваши настройки по умолчанию")
+        if default_people:
+            st.caption(f"👤 Обычно готовите на {default_people} человек")
+        if default_budget:
+            st.caption(f"💰 Обычный бюджет: {default_budget} ₽")
+    
+    st.markdown("---")
+    st.subheader("⛔ Я не ем")
+    st.caption("Пока настройка отключена, но скоро будет доступна")
+    
+    st.markdown("---")
+    st.subheader("🛒 Список покупок")
+    st.caption("Скоро здесь появится список продуктов из ваших рецептов")
