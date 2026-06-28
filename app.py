@@ -126,10 +126,54 @@ def extract_people_and_budget(text):
     return people, budget
 
 def format_recipe(text):
-    """Превращает текстовый ответ AI в структурированный вид"""
+    """Парсит структурированный ответ AI"""
     lines = text.split('\n')
     
-    # Ищем название блюда (ищем "Что приготовить:" или "### Что приготовить:")
+    title = "Рецепт"
+    ingredients = []
+    steps = []
+    time = None
+    budget = None
+    
+    current_section = None
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        if line.startswith('Название:'):
+            title = line.replace('Название:', '').strip()
+        elif line.startswith('Время:'):
+            time = re.search(r'(\d+)', line)
+            time = time.group(1) if time else None
+        elif line.startswith('Бюджет:'):
+            budget = re.search(r'(\d+)', line)
+            budget = budget.group(1) if budget else None
+        elif line.startswith('Ингредиенты:'):
+            current_section = 'ingredients'
+        elif line.startswith('Шаги:'):
+            current_section = 'steps'
+        elif current_section == 'ingredients' and line.startswith('-'):
+            ingredients.append(line[2:].strip())
+        elif current_section == 'steps' and re.match(r'^\d+\.', line):
+            steps.append(line)
+    
+    # Если структура не распознана — пробуем старый метод
+    if not ingredients and not steps:
+        return format_recipe_legacy(text)
+    
+    return {
+        'title': title,
+        'ingredients': ingredients,
+        'steps': steps,
+        'time': time,
+        'budget': budget
+    }
+
+def format_recipe_legacy(text):
+    """Старый метод парсинга — для обратной совместимости"""
+    lines = text.split('\n')
+    
     title = "Рецепт"
     for line in lines:
         line = line.strip()
@@ -350,18 +394,24 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
 
 В начале ответа обязательно укажи бюджет и количество человек, на которые рассчитан рецепт. Например: "Рецепт на {default_people} человек, бюджет {default_budget} ₽".
 
-Твоя задача — дать один чёткий практичный вариант.
+Формат ответа должен быть строго таким:
+Название: [название блюда]
+Время: [число] мин
+Бюджет: [число] ₽
+Ингредиенты:
+- [ингредиент 1] — [количество]
+- [ингредиент 2] — [количество]
+Шаги:
+1. [шаг 1]
+2. [шаг 2]
+
+Не используй другие заголовки. Не добавляй лишних текстов. Только эта структура.
 
 Алгоритм:
 1. Определи ключевые параметры: время, бюджет, количество человек, состояние (устал, хочет впечатлить, планирует заранее), ограничения.
 2. Если параметры не указаны, используй разумные значения по умолчанию.
 3. Предложи ОДИН конкретный сценарий. Не давай альтернатив — только один вариант.
 4. Учти контекст: если пользователь уже выбирал похожие блюда, предложи что-то новое или знакомое в зависимости от ситуации.
-5. Структура ответа:
-   - **Что приготовить** — название блюда.
-   - **Список продуктов** — что нужно купить (с пометкой «купить» или «есть дома», если уместно).
-   - **Пошаговая инструкция** — минимум шагов, без терминов.
-   - **Совет** — 1–2 строки, как улучшить.
 
 Тон: заботливый, дружелюбный, без давления. Не задавай лишних вопросов.
 """
