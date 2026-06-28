@@ -126,7 +126,6 @@ def extract_people_and_budget(text):
     return people, budget
 
 def format_recipe(text):
-    """Превращает текстовый ответ AI в структурированный вид"""
     lines = text.split('\n')
     
     title = "Рецепт"
@@ -170,7 +169,6 @@ def format_recipe(text):
     }
 
 def display_formatted_recipe(text):
-    """Выводит структурированный рецепт через Streamlit"""
     recipe = format_recipe(text)
     
     st.markdown(f"## {recipe['title']}")
@@ -568,9 +566,7 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
-    if "input_buffer" not in st.session_state:
-        st.session_state.input_buffer = ""
-    
+    # ---- ЧИПСЫ (добавляют текст в чат) ----
     st.caption("⚡ Быстро добавить настройки в запрос:")
     col1, col2 = st.columns(2)
     
@@ -581,12 +577,7 @@ if tab == "🏠 Главная":
         for i, p in enumerate(people_options):
             with chip_cols[i]:
                 if st.button(p, key=f"people_{p}"):
-                    current = st.session_state.input_buffer
-                    if "на" in current:
-                        current = re.sub(r'на\s+\d+\s+человек', f'на {p} человек', current)
-                    else:
-                        current = current + (", " if current else "") + f"на {p} человек"
-                    st.session_state.input_buffer = current
+                    st.session_state.messages.append({"role": "user", "content": f"на {p} человек", "is_variant": False})
                     st.rerun()
         with chip_cols[4]:
             if st.button("6+", key="people_6plus"):
@@ -600,15 +591,7 @@ if tab == "🏠 Главная":
         for i, b in enumerate(budget_options):
             with chip_cols[i]:
                 if st.button(b, key=f"budget_{b}"):
-                    current = st.session_state.input_buffer
-                    if "бюджет" in current:
-                        if "Безлимит" in current:
-                            current = re.sub(r'бюджет\s+Безлимит', f'бюджет {b}', current)
-                        else:
-                            current = re.sub(r'бюджет\s+\d+\s*[р₽]', f'бюджет {b}', current)
-                    else:
-                        current = current + (", " if current else "") + f"бюджет {b}"
-                    st.session_state.input_buffer = current
+                    st.session_state.messages.append({"role": "user", "content": f"бюджет {b}", "is_variant": False})
                     st.rerun()
     
     if st.session_state.show_people_input:
@@ -626,12 +609,7 @@ if tab == "🏠 Главная":
             )
         with col2:
             if st.button("✅ Применить", key="apply_custom_people"):
-                current = st.session_state.input_buffer
-                if "на" in current:
-                    current = re.sub(r'на\s+\d+\s+человек', f'на {custom_people} человек', current)
-                else:
-                    current = current + (", " if current else "") + f"на {custom_people} человек"
-                st.session_state.input_buffer = current
+                st.session_state.messages.append({"role": "user", "content": f"на {custom_people} человек", "is_variant": False})
                 st.session_state.show_people_input = False
                 st.rerun()
         with col3:
@@ -683,9 +661,10 @@ if tab == "🏠 Главная":
     st.markdown("---")
     prompt = st.text_area(
         "Опиши ситуацию или задай вопрос...",
-        value=st.session_state.input_buffer,
+        value="",
         key="chat_input_text",
-        height=68
+        height=68,
+        placeholder="Например: что приготовить из курицы и риса?"
     )
     
     col1, col2 = st.columns([4, 1])
