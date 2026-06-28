@@ -126,37 +126,36 @@ def extract_people_and_budget(text):
     return people, budget
 
 def format_recipe(text):
+    """Превращает текстовый ответ AI в структурированный вид"""
     lines = text.split('\n')
     
+    # Ищем название блюда (первая строка, которая не служебная)
     title = "Рецепт"
     for line in lines:
         line = line.strip()
-        if line and not line.startswith(('**', 'Список', 'Пошаговая', 'Время', 'Бюджет', 'Совет')):
-            title = line
-            break
+        if line and not line.startswith(('Рецепт', '**', 'Список', 'Пошаговая', 'Время', 'Бюджет', 'Совет', 'Шаги', 'Ингредиенты')):
+            # Проверяем, что это не просто цифры и не "на 4 человек"
+            if not re.match(r'^[\d\s]+$', line) and not line.startswith('на'):
+                title = line
+                break
     
+    # Ищем ингредиенты (все строки с "-")
     ingredients = []
-    in_ingredients = False
     for line in lines:
         line = line.strip()
-        if line.startswith('Список продуктов:') or line.startswith('**Список продуктов:**'):
-            in_ingredients = True
-            continue
-        if in_ingredients and line.startswith('-'):
-            ingredients.append(line[2:].strip())
-        elif in_ingredients and line and not line.startswith('-'):
-            break
+        if line.startswith('-') or line.startswith('•') or line.startswith('*'):
+            item = line[2:].strip()
+            if item and len(item) < 100:
+                ingredients.append(item)
     
+    # Ищем шаги (все строки с "1.", "2." и т.д.)
     steps = []
-    in_steps = False
     for line in lines:
         line = line.strip()
-        if line.startswith('Пошаговая инструкция:') or line.startswith('**Пошаговая инструкция:**'):
-            in_steps = True
-            continue
-        if in_steps and line and line[0].isdigit() and '. ' in line:
+        if re.match(r'^\d+\.\s+', line):
             steps.append(line)
     
+    # Ищем время и бюджет
     time_match = re.search(r'(\d+)\s*мин', text)
     budget_match = re.search(r'(\d+)\s*[₽р]', text)
     
@@ -169,6 +168,7 @@ def format_recipe(text):
     }
 
 def display_formatted_recipe(text):
+    """Выводит структурированный рецепт через Streamlit"""
     recipe = format_recipe(text)
     
     st.markdown(f"## {recipe['title']}")
@@ -566,7 +566,7 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
-    # ---- ЧИПСЫ (добавляют текст в чат) ----
+    # ---- ЧИПСЫ ----
     st.caption("⚡ Быстро добавить настройки в запрос:")
     col1, col2 = st.columns(2)
     
