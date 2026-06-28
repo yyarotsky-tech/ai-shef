@@ -729,16 +729,19 @@ if tab == "🏠 Главная":
         if st.button("Отправить", key="send_message", use_container_width=True):
             if st.session_state.chat_input_text:
                 prompt_text = st.session_state.chat_input_text
+                
+                # Добавляем сообщение пользователя в чат
                 st.session_state.messages.append({"role": "user", "content": prompt_text, "is_variant": False})
                 st.session_state.input_buffer = ""
                 
-                # Собираем все сообщения пользователя в текущем диалоге
+                # Собираем ВСЕ сообщения пользователя в текущем диалоге
                 full_query = ""
                 for msg in st.session_state.messages:
                     if msg["role"] == "user" and not msg.get("is_variant", False):
                         full_query += msg["content"] + " "
                 full_query = full_query.strip()
                 
+                # Проверяем, является ли это уточнением к последнему ответу
                 if len(st.session_state.messages) > 1:
                     last_assistant_response = None
                     for msg in reversed(st.session_state.messages):
@@ -754,20 +757,12 @@ if tab == "🏠 Главная":
                                 st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
                             st.rerun()
                         else:
-                            if full_query:
-                                handle_new_query(full_query)
-                            else:
-                                handle_new_query(prompt_text)
-                    else:
-                        if full_query:
+                            # Передаём full_query в generate_scenario
                             handle_new_query(full_query)
-                        else:
-                            handle_new_query(prompt_text)
-                else:
-                    if full_query:
-                        handle_new_query(full_query)
                     else:
-                        handle_new_query(prompt_text)
+                        handle_new_query(full_query)
+                else:
+                    handle_new_query(full_query)
                 st.rerun()
     
     st.markdown("---")
