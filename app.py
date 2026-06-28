@@ -129,17 +129,23 @@ def format_recipe(text):
     """Превращает текстовый ответ AI в структурированный вид"""
     lines = text.split('\n')
     
-    # Ищем название блюда (первая строка, которая не служебная)
+    # Ищем название блюда (ищем "Что приготовить:" или "### Что приготовить:")
     title = "Рецепт"
     for line in lines:
         line = line.strip()
-        if line and not line.startswith(('Рецепт', '**', 'Список', 'Пошаговая', 'Время', 'Бюджет', 'Совет', 'Шаги', 'Ингредиенты')):
-            # Проверяем, что это не просто цифры и не "на 4 человек"
-            if not re.match(r'^[\d\s]+$', line) and not line.startswith('на'):
-                title = line
-                break
+        if "Что приготовить:" in line:
+            title = line.split("Что приготовить:")[1].strip()
+            title = title.replace('###', '').strip()
+            break
     
-    # Ищем ингредиенты (все строки с "-")
+    if title == "Рецепт":
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith(('Рецепт', '**', 'Список', 'Пошаговая', 'Время', 'Бюджет', 'Совет', 'Шаги', 'Ингредиенты', '#')):
+                if not re.match(r'^[\d\s]+$', line) and not line.startswith('на'):
+                    title = line
+                    break
+    
     ingredients = []
     for line in lines:
         line = line.strip()
@@ -148,14 +154,12 @@ def format_recipe(text):
             if item and len(item) < 100:
                 ingredients.append(item)
     
-    # Ищем шаги (все строки с "1.", "2." и т.д.)
     steps = []
     for line in lines:
         line = line.strip()
         if re.match(r'^\d+\.\s+', line):
             steps.append(line)
     
-    # Ищем время и бюджет
     time_match = re.search(r'(\d+)\s*мин', text)
     budget_match = re.search(r'(\d+)\s*[₽р]', text)
     
@@ -566,7 +570,6 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
-    # ---- ЧИПСЫ ----
     st.caption("⚡ Быстро добавить настройки в запрос:")
     col1, col2 = st.columns(2)
     
@@ -657,7 +660,6 @@ if tab == "🏠 Главная":
                             st.session_state.messages.append({"role": "assistant", "content": shopping_list, "is_variant": False})
                             st.rerun()
     
-    # ---- ПОЛЕ ВВОДА И КНОПКА ОТПРАВКИ ----
     st.markdown("---")
     prompt = st.text_area(
         "Опиши ситуацию или задай вопрос...",
