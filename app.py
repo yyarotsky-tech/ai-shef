@@ -642,7 +642,6 @@ if tab == "🏠 Главная":
     
     st.markdown("---")
     
-    # ---- ОТОБРАЖЕНИЕ СООБЩЕНИЙ ----
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             if message["role"] == "assistant" and message.get("is_variant", False):
@@ -680,7 +679,7 @@ if tab == "🏠 Главная":
                             st.session_state.messages.append({"role": "assistant", "content": shopping_list, "is_variant": False})
                             st.rerun()
     
-    # ---- ПОЛЕ ВВОДА ----
+    # ---- ПОЛЕ ВВОДА И КНОПКА ОТПРАВКИ ----
     prompt = st.text_input(
         "Опиши ситуацию или задай вопрос...",
         value=st.session_state.input_buffer,
@@ -691,8 +690,8 @@ if tab == "🏠 Главная":
     with col2:
         if st.button("Отправить", key="send_message", use_container_width=True):
             if st.session_state.chat_input_text:
-                prompt = st.session_state.chat_input_text
-                st.session_state.messages.append({"role": "user", "content": prompt, "is_variant": False})
+                prompt_text = st.session_state.chat_input_text
+                st.session_state.messages.append({"role": "user", "content": prompt_text, "is_variant": False})
                 st.session_state.input_buffer = ""
                 
                 if len(st.session_state.messages) > 1:
@@ -703,18 +702,18 @@ if tab == "🏠 Главная":
                             break
                     
                     if last_assistant_response:
-                        follow_up_response = handle_follow_up(prompt, last_assistant_response)
+                        follow_up_response = handle_follow_up(prompt_text, last_assistant_response)
                         if follow_up_response:
                             with st.chat_message("assistant"):
                                 st.markdown(follow_up_response)
                                 st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
                             st.rerun()
                         else:
-                            handle_new_query(prompt)
+                            handle_new_query(prompt_text)
                     else:
-                        handle_new_query(prompt)
+                        handle_new_query(prompt_text)
                 else:
-                    handle_new_query(prompt)
+                    handle_new_query(prompt_text)
                 st.rerun()
     
     st.markdown("---")
@@ -731,3 +730,47 @@ elif tab == "🍲 Вкусненькое":
         st.info("У вас пока нет сохранённых рецептов. Начните готовить!")
     else:
         for i, session in enumerate(reversed(history)):
+            recipe_name = session.get("chosen_recipe", "")
+            full_recipe = session.get("full_recipe", recipe_name)
+            date = session.get("date", "")
+            if recipe_name:
+                st.markdown(f"**{i+1}. {recipe_name}**")
+                st.caption(f"Сохранено: {date}")
+                if st.button("Посмотреть", key=f"view_{i}"):
+                    open_recipe_in_chat(full_recipe)
+                st.markdown("---")
+
+# ==============================================
+#  ВКЛАДКА «ПРОФИЛЬ»
+# ==============================================
+elif tab == "👤 Профиль":
+    st.title("👤 Профиль")
+    
+    history = get_user_history()
+    st.metric("Всего рецептов", len(history))
+    
+    profile = get_user_profile()
+    substitutions = profile.get("substitutions", [])
+    if substitutions:
+        st.markdown("---")
+        st.subheader("🔄 Ваши замены")
+        for sub in substitutions[-5:]:
+            st.caption(f"{sub['original']} → {sub['replacement']} ({sub['date'][:10]})")
+    
+    default_people = profile.get("default_people")
+    default_budget = profile.get("default_budget")
+    if default_people or default_budget:
+        st.markdown("---")
+        st.subheader("📊 Ваши настройки по умолчанию")
+        if default_people:
+            st.caption(f"👤 Обычно готовите на {default_people} человек")
+        if default_budget:
+            st.caption(f"💰 Обычный бюджет: {default_budget} ₽")
+    
+    st.markdown("---")
+    st.subheader("⛔ Я не ем")
+    st.caption("Пока настройка отключена, но скоро будет доступна")
+    
+    st.markdown("---")
+    st.subheader("🛒 Список покупок")
+    st.caption("Скоро здесь появится список продуктов из ваших рецептов")
