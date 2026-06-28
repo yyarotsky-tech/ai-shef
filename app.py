@@ -567,121 +567,156 @@ if tab == "🏠 Главная":
             handle_quick_scenario(scenario)
     
     st.markdown("---")
-
-# ---- ЧИПСЫ ----
     
-# ---- ЧИПСЫ ----
-if "input_buffer" not in st.session_state:
-    st.session_state.input_buffer = ""
-
-st.caption("⚡ Быстро добавить настройки в запрос:")
-col1, col2 = st.columns(2)
-
-with col1:
-    st.caption("👤 Человек")
-    chip_cols = st.columns(5)
-    people_options = ["2", "3", "4", "5"]
-    for i, p in enumerate(people_options):
-        with chip_cols[i]:
-            if st.button(p, key=f"people_{p}"):
+    if "input_buffer" not in st.session_state:
+        st.session_state.input_buffer = ""
+    
+    st.caption("⚡ Быстро добавить настройки в запрос:")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.caption("👤 Человек")
+        chip_cols = st.columns(5)
+        people_options = ["2", "3", "4", "5"]
+        for i, p in enumerate(people_options):
+            with chip_cols[i]:
+                if st.button(p, key=f"people_{p}"):
+                    current = st.session_state.input_buffer
+                    if "на" in current:
+                        current = re.sub(r'на\s+\d+\s+человек', f'на {p} человек', current)
+                    else:
+                        current = current + (", " if current else "") + f"на {p} человек"
+                    st.session_state.input_buffer = current
+                    st.rerun()
+        with chip_cols[4]:
+            if st.button("6+", key="people_6plus"):
+                st.session_state.show_people_input = True
+                st.rerun()
+    
+    with col2:
+        st.caption("💰 Бюджет")
+        chip_cols = st.columns(4)
+        budget_options = ["300 ₽", "500 ₽", "800 ₽", "Безлимит"]
+        for i, b in enumerate(budget_options):
+            with chip_cols[i]:
+                if st.button(b, key=f"budget_{b}"):
+                    current = st.session_state.input_buffer
+                    if "бюджет" in current:
+                        if "Безлимит" in current:
+                            current = re.sub(r'бюджет\s+Безлимит', f'бюджет {b}', current)
+                        else:
+                            current = re.sub(r'бюджет\s+\d+\s*[р₽]', f'бюджет {b}', current)
+                    else:
+                        current = current + (", " if current else "") + f"бюджет {b}"
+                    st.session_state.input_buffer = current
+                    st.rerun()
+    
+    if st.session_state.show_people_input:
+        st.markdown("---")
+        st.caption("Введите количество человек (больше 6):")
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            custom_people = st.number_input(
+                "",
+                min_value=7,
+                max_value=20,
+                step=1,
+                key="custom_people_input",
+                label_visibility="collapsed"
+            )
+        with col2:
+            if st.button("✅ Применить", key="apply_custom_people"):
                 current = st.session_state.input_buffer
                 if "на" in current:
-                    current = re.sub(r'на\s+\d+\s+человек', f'на {p} человек', current)
+                    current = re.sub(r'на\s+\d+\s+человек', f'на {custom_people} человек', current)
                 else:
-                    current = current + (", " if current else "") + f"на {p} человек"
+                    current = current + (", " if current else "") + f"на {custom_people} человек"
                 st.session_state.input_buffer = current
+                st.session_state.show_people_input = False
                 st.rerun()
-    with chip_cols[4]:
-        if st.button("6+", key="people_6plus"):
-            st.session_state.show_people_input = True
-            st.rerun()
-
-with col2:
-    st.caption("💰 Бюджет")
-    chip_cols = st.columns(4)
-    budget_options = ["300 ₽", "500 ₽", "800 ₽", "Безлимит"]
-    for i, b in enumerate(budget_options):
-        with chip_cols[i]:
-            if st.button(b, key=f"budget_{b}"):
-                current = st.session_state.input_buffer
-                if "бюджет" in current:
-                    if "Безлимит" in current:
-                        current = re.sub(r'бюджет\s+Безлимит', f'бюджет {b}', current)
-                    else:
-                        current = re.sub(r'бюджет\s+\d+\s*[р₽]', f'бюджет {b}', current)
-                else:
-                    current = current + (", " if current else "") + f"бюджет {b}"
-                st.session_state.input_buffer = current
+        with col3:
+            if st.button("❌ Отмена", key="cancel_custom_people"):
+                st.session_state.show_people_input = False
                 st.rerun()
-
-if st.session_state.show_people_input:
+        st.markdown("---")
+    
     st.markdown("---")
-    st.caption("Введите количество человек (больше 6):")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        custom_people = st.number_input(
-            "",
-            min_value=7,
-            max_value=20,
-            step=1,
-            key="custom_people_input",
-            label_visibility="collapsed"
-        )
-    with col2:
-        if st.button("✅ Применить", key="apply_custom_people"):
-            current = st.session_state.input_buffer
-            if "на" in current:
-                current = re.sub(r'на\s+\d+\s+человек', f'на {custom_people} человек', current)
+    
+    for idx, message in enumerate(st.session_state.messages):
+        with st.chat_message(message["role"]):
+            if message["role"] == "assistant" and message.get("is_variant", False):
+                display_formatted_recipe(message["content"])
             else:
-                current = current + (", " if current else "") + f"на {custom_people} человек"
-            st.session_state.input_buffer = current
-            st.session_state.show_people_input = False
-            st.rerun()
-    with col3:
-        if st.button("❌ Отмена", key="cancel_custom_people"):
-            st.session_state.show_people_input = False
-            st.rerun()
-    st.markdown("---")
-
-st.markdown("---")
-
-# ---- ПОЛЕ ВВОДА (используем st.text_area) ----
-prompt = st.text_area(
-    "Опиши ситуацию или задай вопрос...",
-    value=st.session_state.input_buffer,
-    key="chat_input_text",
-    height=68
-)
-
-col1, col2 = st.columns([4, 1])
-with col2:
-    if st.button("Отправить", key="send_message", use_container_width=True):
-        if st.session_state.chat_input_text:
-            prompt_text = st.session_state.chat_input_text
-            st.session_state.messages.append({"role": "user", "content": prompt_text, "is_variant": False})
-            st.session_state.input_buffer = ""
+                st.markdown(message["content"])
             
-            if len(st.session_state.messages) > 1:
-                last_assistant_response = None
-                for msg in reversed(st.session_state.messages):
-                    if msg["role"] == "assistant" and msg.get("is_variant", False):
-                        last_assistant_response = msg["content"]
-                        break
+            if message["role"] == "assistant" and message.get("is_variant", False):
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    if st.button("✅ Выбрать", key=f"choose_{idx}", use_container_width=True):
+                        full_text = message["content"]
+                        recipe_name = extract_recipe_name(full_text)
+                        save_user_history(
+                            query=st.session_state.current_query,
+                            chosen_recipe=recipe_name,
+                            full_recipe=full_text,
+                            situation_type="общий"
+                        )
+                        st.success(f"Сохранено: {recipe_name}")
+                with col2:
+                    if st.button("🔄 Ещё", key=f"think_{idx}"):
+                        generate_next_variant()
+                with col3:
+                    if st.button("🛒 Список", key=f"shopping_{idx}"):
+                        with st.spinner("Собираю список покупок..."):
+                            profile = get_user_profile()
+                            people = profile.get("default_people", 2)
+                            budget = profile.get("default_budget", 300)
+                            shopping_list = generate_shopping_list(
+                                message["content"],
+                                people_count=people,
+                                budget=budget
+                            )
+                            st.session_state.messages.append({"role": "assistant", "content": shopping_list, "is_variant": False})
+                            st.rerun()
+    
+    # ---- ПОЛЕ ВВОДА И КНОПКА ОТПРАВКИ ----
+    st.markdown("---")
+    prompt = st.text_area(
+        "Опиши ситуацию или задай вопрос...",
+        value=st.session_state.input_buffer,
+        key="chat_input_text",
+        height=68
+    )
+    
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("Отправить", key="send_message", use_container_width=True):
+            if st.session_state.chat_input_text:
+                prompt_text = st.session_state.chat_input_text
+                st.session_state.messages.append({"role": "user", "content": prompt_text, "is_variant": False})
+                st.session_state.input_buffer = ""
                 
-                if last_assistant_response:
-                    follow_up_response = handle_follow_up(prompt_text, last_assistant_response)
-                    if follow_up_response:
-                        with st.chat_message("assistant"):
-                            st.markdown(follow_up_response)
-                            st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
-                        st.rerun()
+                if len(st.session_state.messages) > 1:
+                    last_assistant_response = None
+                    for msg in reversed(st.session_state.messages):
+                        if msg["role"] == "assistant" and msg.get("is_variant", False):
+                            last_assistant_response = msg["content"]
+                            break
+                    
+                    if last_assistant_response:
+                        follow_up_response = handle_follow_up(prompt_text, last_assistant_response)
+                        if follow_up_response:
+                            with st.chat_message("assistant"):
+                                st.markdown(follow_up_response)
+                                st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
+                            st.rerun()
+                        else:
+                            handle_new_query(prompt_text)
                     else:
                         handle_new_query(prompt_text)
                 else:
                     handle_new_query(prompt_text)
-            else:
-                handle_new_query(prompt_text)
-            st.rerun()
+                st.rerun()
     
     st.markdown("---")
     st.caption("🍳 AI-Шеф v1.0 — прототип")
