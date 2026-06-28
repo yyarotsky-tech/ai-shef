@@ -111,17 +111,23 @@ def extract_recipe_name(text):
     return "Рецепт без названия"
 
 def extract_people_and_budget(text):
+    """Извлекает количество человек и бюджет из текста"""
     text_lower = text.lower()
     people = None
     budget = None
     
-    people_match = re.search(r'на\s+(\d+)\s+человек', text_lower)
+    # Ищем "на 8 человек" или "на 8"
+    people_match = re.search(r'на\s+(\d+)\s*(?:человек)?', text_lower)
     if people_match:
         people = int(people_match.group(1))
     
+    # Ищем "бюджет 300" или "300 ₽" или "безлимит"
     budget_match = re.search(r'бюджет\s+(\d+)|(\d+)\s*[р₽]', text_lower)
     if budget_match:
         budget = int(budget_match.group(1) or budget_match.group(2))
+    
+    if 'безлимит' in text_lower:
+        budget = 9999
     
     return people, budget
 
@@ -158,7 +164,6 @@ def format_recipe(text):
         elif current_section == 'steps' and re.match(r'^\d+\.', line):
             steps.append(line)
     
-    # Если структура не распознана — пробуем старый метод
     if not ingredients and not steps:
         return format_recipe_legacy(text)
     
@@ -171,7 +176,6 @@ def format_recipe(text):
     }
 
 def format_recipe_legacy(text):
-    """Старый метод парсинга — для обратной совместимости"""
     lines = text.split('\n')
     
     title = "Рецепт"
@@ -216,7 +220,6 @@ def format_recipe_legacy(text):
     }
 
 def display_formatted_recipe(text):
-    """Выводит структурированный рецепт через Streamlit"""
     recipe = format_recipe(text)
     
     st.markdown(f"## {recipe['title']}")
@@ -281,10 +284,11 @@ def generate_scenario(query, variant_index=0, rejected_variants=None, previous_v
     situation_types = profile.get("situation_types", [])
     substitutions = profile.get("substitutions", [])
     
+    # Извлекаем настройки из текста запроса
+    people_in_query, budget_in_query = extract_people_and_budget(query)
+    
     default_people = profile.get("default_people", 2)
     default_budget = profile.get("default_budget", 300)
-    
-    people_in_query, budget_in_query = extract_people_and_budget(query)
     
     if people_in_query:
         default_people = people_in_query
@@ -710,6 +714,7 @@ if tab == "🏠 Главная":
                             st.session_state.messages.append({"role": "assistant", "content": shopping_list, "is_variant": False})
                             st.rerun()
     
+    # ---- ПОЛЕ ВВОДА И КНОПКА ОТПРАВКИ ----
     st.markdown("---")
     prompt = st.text_area(
         "Опиши ситуацию или задай вопрос...",
@@ -727,6 +732,13 @@ if tab == "🏠 Главная":
                 st.session_state.messages.append({"role": "user", "content": prompt_text, "is_variant": False})
                 st.session_state.input_buffer = ""
                 
+                # Собираем все сообщения пользователя в текущем диалоге
+                full_query = ""
+                for msg in st.session_state.messages:
+                    if msg["role"] == "user" and not msg.get("is_variant", False):
+                        full_query += msg["content"] + " "
+                full_query = full_query.strip()
+                
                 if len(st.session_state.messages) > 1:
                     last_assistant_response = None
                     for msg in reversed(st.session_state.messages):
@@ -742,11 +754,20 @@ if tab == "🏠 Главная":
                                 st.session_state.messages.append({"role": "assistant", "content": follow_up_response, "is_variant": False})
                             st.rerun()
                         else:
+                            if full_query:
+                                handle_new_query(full_query)
+                            else:
+                                handle_new_query(prompt_text)
+                    else:
+                        if full_query:
+                            handle_new_query(full_query)
+                        else:
                             handle_new_query(prompt_text)
+                else:
+                    if full_query:
+                        handle_new_query(full_query)
                     else:
                         handle_new_query(prompt_text)
-                else:
-                    handle_new_query(prompt_text)
                 st.rerun()
     
     st.markdown("---")
